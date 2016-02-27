@@ -120,37 +120,97 @@ void http_client::upload_worker(const http_multipart_request& request)
     
     boost::asio::connect(_socket, ep_it);
 
+    http_multipart_request::data_array full_request =	
+	request.multipart_header();
+
+    const http_multipart_request::data_array& body = request.multipart_body();
+
+    full_request.insert(full_request.end(), body.begin(), body.end());
+
+    const http_multipart_request::data_array& data = request.multipart_data();
+
+    full_request.insert(full_request.end(), data.begin(), data.end());
+
+    const std::string bbuf = std::string{"\r\n"}.append(request.boundary());
+
+    full_request.insert(full_request.end(), bbuf.begin(), bbuf.end());
+
+
+    http_multipart_request::data_array::size_type bytes_sent{0};
+    http_multipart_request::data_array::size_type bytes_left = full_request.size();
+
+    unsigned packet_size = 1440;
+    
+    while (bytes_left) {
+	boost::asio::socket_base::bytes_readable command(true);
+	_socket.io_control(command);
+	if (command.get()) {
+	    std::cout << "\n\nHave unreaded bytes in socket!\n";
+	    boost::asio::streambuf response;
+	    while (boost::asio::read(_socket, response, ec)) {
+		std::cout << "answer: " << &response;
+	    }
+	    std::cout << "\n\n";
+	}
+	
+	if (packet_size > bytes_left) packet_size = bytes_left;
+	http_multipart_request::data_array::size_type bytes_writes =
+	    boost::asio::write(_socket, 
+			       boost::asio::buffer(full_request.data() + bytes_sent,
+						   packet_size));
+	
+	bytes_left -= bytes_writes;
+	bytes_sent += bytes_writes;
+        _success_sig(std::string{"sent "}.append(std::to_string(bytes_sent).append(" bytes")));
+	boost::this_thread::sleep_for(boost::chrono::milliseconds(500));
+    }
+    
+    /*
     http_multipart_request::data_array header_array =
 	request.multipart_header();
 
-    std::cout << "\n\n\tHeader start\n";    
-    for (char c : header_array) {
-	std::cout << c;
-    }
-    std::cout << "\tHeader end\n\n";
-    
     boost::asio::write(_socket, boost::asio::buffer(header_array.data(),
 						    header_array.size()));
+
+    boost::asio::socket_base::bytes_readable command(true);
+    _socket.io_control(command);
+    if (command.get()) {
+	std::cout << "\n\n\tHave unread bytes in socket after header\n";
+    }    
 
     http_multipart_request::data_array body =
 	request.multipart_body();
 
-
-    std::cout << "\n\n\tBody start\n";        
-    for (char c : body) {
-	std::cout << c;
-    }
-    std::cout << "\tBody end\n\n";
-    
     boost::asio::write(_socket, boost::asio::buffer(body.data(), body.size()));
-
+	boost::this_thread::sleep_for(boost::chrono::milliseconds(2000));
+    if (command.get()) {
+	std::cout << "\n\n\tHave unread bytes in socket after body\n";
+    }
 
     http_multipart_request::data_array::size_type bytes_sent{0};
     http_multipart_request::data_array::size_type bytes_left =
 	request.multipart_data_size();
 
+    const http_multipart_request::data_array& data = request.multipart_data();
+    
     unsigned packet_size = 1448;
     while (bytes_left) {
+	boost::asio::socket_base::bytes_readable command(true);
+	_socket.io_control(command);
+	if (command.get()) {
+	    std::cout << "\n\nHave unread bytes in socket!\n";
+	    boost::asio::streambuf response;
+	    while (boost::asio::read(_socket, response, ec)) {
+		std::cout << "answer: " << &response;
+	    }
+	    std::cout << "\n\n";
+	}
+
+	for (std::size_t byte_index = 0; byte_index < packet_size; ++byte_index) {
+	    std::cout << data[byte_index];
+	}
+	std::cout << "\n";
+	
 	if (packet_size > bytes_left) packet_size = bytes_left;
 	http_multipart_request::data_array::size_type bytes_writes =
 	    boost::asio::write(_socket, 
@@ -160,13 +220,13 @@ void http_client::upload_worker(const http_multipart_request& request)
 	bytes_left -= bytes_writes;
 	bytes_sent += bytes_writes;
         _success_sig(std::string{"sent "}.append(std::to_string(bytes_sent).append(" bytes")));
-	boost::this_thread::sleep_for(boost::chrono::seconds(1));	
+	boost::this_thread::sleep_for(boost::chrono::milliseconds(500));
     }
 
     std::string bbuf = std::string{"\r\n"}.append(request.boundary());
     
     boost::asio::write(_socket, boost::asio::buffer(bbuf.data(), bbuf.size()));
-
+*/
     // Read data
 
     boost::asio::streambuf response;

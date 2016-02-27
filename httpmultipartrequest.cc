@@ -7,13 +7,17 @@
 http_multipart_request::data_array
 http_multipart_request::multipart_header() const
 {
+    std::string boundary_str = boundary();
+    boundary_str = boundary_str.substr(2, boundary_str.length() - 2);
+    
     std::string header_str = std::string{}
     .append("POST ").append(_url.uri()).append(" HTTP/1.1\r\n")
 	 .append("Host: ").append(_url.host()).append(":")
 	 .append(std::to_string(_url.port())).append("\r\n")
 	 .append("Content-Type: multipart/form-data; ").append("boundary=")
-	 .append("MIME-Version: 1.0\r\n")
-	 .append(boundary()).append("Accept-Encoding: gzip\r\n")
+	 .append(boundary_str)
+	 .append("Accept-Encoding: gzip\r\n")
+	 .append("MIME-Version: 1.0\r\n")	 
 	 .append("Accept-Language: ru-US,en,*\r\n")
 	 .append("User-Agent: Mozilla/5.0\r\n")
 	 //.append("Content-Length: ").append(std::to_string(content_size())).append("\r\n")

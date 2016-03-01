@@ -10,6 +10,9 @@
 #include <string>
 #include <sstream>
 #include <chrono>
+#include <algorithm>
+#include <iterator>
+#include <cstdio>
 
 #include <boost/bind.hpp>
 
@@ -40,6 +43,37 @@ void http_client::http_worker(const http_request& request)
 		   << "onnection: keep-alive\r\n\r\n";
 
     boost::asio::write(_socket, boost_request);
+
+    boost::system::error_code err;
+    
+    boost::asio::streambuf response;
+    boost::asio::read(_socket, response, err);
+    std::istream response_stream(&response);    
+
+    response_raw_lines lines{};
+
+    std::string line{};
+    while (std::getline(response_stream, line)) {
+	lines.push_back(line.substr(0, line.length() - 1));
+    }
+
+    bool is_http_response{false};
+
+    std::for_each(lines.begin(), lines.end(), [&is_http_response] (const std::string& str) {
+	    if (str.find("HTTP/") != std::string::npos) is_http_response = true;
+	});
+
+    if (!is_http_response) _fail_sig();
+
+    http_response httpresp{lines};
+    
+    if (err != boost::asio::error::eof) {
+	std::cerr << "Error: " << err.message() << "\n";
+	_fail_sig();
+    }
+    
+    /*
+    
     boost::asio::streambuf response;
     boost::asio::read_until(_socket, response, "\r\n");
 
@@ -91,6 +125,7 @@ void http_client::http_worker(const http_request& request)
     } else {
 	_success_sig(ss.str());
     }
+    */
 }
 
 void http_client::post(http_multipart_request_ptr& request)
@@ -120,27 +155,15 @@ void http_client::upload_worker(const http_multipart_request& request)
     
     boost::asio::connect(_socket, ep_it);
 
-    http_multipart_request::data_array full_request =	
-	request.multipart_header();
-
-    const http_multipart_request::data_array& body = request.multipart_body();
-
-    full_request.insert(full_request.end(), body.begin(), body.end());
-
-    const http_multipart_request::data_array& data = request.multipart_data();
-
-    full_request.insert(full_request.end(), data.begin(), data.end());
-
-    const std::string bbuf = std::string{"\r\n"}.append(request.boundary());
-
-    full_request.insert(full_request.end(), bbuf.begin(), bbuf.end());
-
+    const http_multipart_request::data_array full_request = request.request();
 
     http_multipart_request::data_array::size_type bytes_sent{0};
     http_multipart_request::data_array::size_type bytes_left = full_request.size();
+    http_multipart_request::data_array::size_type bytes_total = bytes_left;
 
     unsigned packet_size = 1440;
-    
+
+    _progress_sig(0, bytes_total);
     while (bytes_left) {
 	boost::asio::socket_base::bytes_readable command(true);
 	_socket.io_control(command);
@@ -161,82 +184,36 @@ void http_client::upload_worker(const http_multipart_request& request)
 	
 	bytes_left -= bytes_writes;
 	bytes_sent += bytes_writes;
-        _success_sig(std::string{"sent "}.append(std::to_string(bytes_sent).append(" bytes")));
-	boost::this_thread::sleep_for(boost::chrono::milliseconds(500));
-    }
-    
-    /*
-    http_multipart_request::data_array header_array =
-	request.multipart_header();
-
-    boost::asio::write(_socket, boost::asio::buffer(header_array.data(),
-						    header_array.size()));
-
-    boost::asio::socket_base::bytes_readable command(true);
-    _socket.io_control(command);
-    if (command.get()) {
-	std::cout << "\n\n\tHave unread bytes in socket after header\n";
-    }    
-
-    http_multipart_request::data_array body =
-	request.multipart_body();
-
-    boost::asio::write(_socket, boost::asio::buffer(body.data(), body.size()));
-	boost::this_thread::sleep_for(boost::chrono::milliseconds(2000));
-    if (command.get()) {
-	std::cout << "\n\n\tHave unread bytes in socket after body\n";
+	_progress_sig(bytes_sent, bytes_total);
     }
 
-    http_multipart_request::data_array::size_type bytes_sent{0};
-    http_multipart_request::data_array::size_type bytes_left =
-	request.multipart_data_size();
-
-    const http_multipart_request::data_array& data = request.multipart_data();
-    
-    unsigned packet_size = 1448;
-    while (bytes_left) {
-	boost::asio::socket_base::bytes_readable command(true);
-	_socket.io_control(command);
-	if (command.get()) {
-	    std::cout << "\n\nHave unread bytes in socket!\n";
-	    boost::asio::streambuf response;
-	    while (boost::asio::read(_socket, response, ec)) {
-		std::cout << "answer: " << &response;
-	    }
-	    std::cout << "\n\n";
-	}
-
-	for (std::size_t byte_index = 0; byte_index < packet_size; ++byte_index) {
-	    std::cout << data[byte_index];
-	}
-	std::cout << "\n";
-	
-	if (packet_size > bytes_left) packet_size = bytes_left;
-	http_multipart_request::data_array::size_type bytes_writes =
-	    boost::asio::write(_socket, 
-			       boost::asio::buffer(request.multipart_data().data() + bytes_sent,
-						   packet_size));
-	
-	bytes_left -= bytes_writes;
-	bytes_sent += bytes_writes;
-        _success_sig(std::string{"sent "}.append(std::to_string(bytes_sent).append(" bytes")));
-	boost::this_thread::sleep_for(boost::chrono::milliseconds(500));
-    }
-
-    std::string bbuf = std::string{"\r\n"}.append(request.boundary());
-    
-    boost::asio::write(_socket, boost::asio::buffer(bbuf.data(), bbuf.size()));
-*/
     // Read data
 
+    boost::system::error_code err;
+    
     boost::asio::streambuf response;
-    while (boost::asio::read(_socket, response,
-			     /*boost::asio::transfer_at_least(1),*/ ec)) {
-	std::cout << "answer: " << &response;
+    boost::asio::read(_socket, response, err);
+    std::istream response_stream(&response);    
+
+    response_raw_lines lines{};
+
+    std::string line{};
+    while (std::getline(response_stream, line)) {
+	lines.push_back(line.substr(0, line.length() - 1));
     }
 
-    if (ec != boost::asio::error::eof) {
-	std::cerr << "Error: " << ec.message() << "\n";
+    bool is_http_response{false};
+
+    std::for_each(lines.begin(), lines.end(), [&is_http_response] (const std::string& str) {
+	    if (str.find("HTTP/") != std::string::npos) is_http_response = true;
+	});
+
+    if (!is_http_response) _fail_sig();
+
+    _success_sig(http_response{lines});
+    
+    if (err != boost::asio::error::eof) {
+	std::cerr << "Error: " << err.message() << "\n";
 	_fail_sig();
     }
 }

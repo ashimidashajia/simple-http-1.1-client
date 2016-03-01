@@ -3,7 +3,13 @@
 #include <iostream>
 
 http_url::http_url(const std::string& url)
+    : _error{error_types::Success}
 {
+    if (!url.length()) {
+	_error = error_types::EmptyUrl;
+	return;
+    }
+
     std::string url_copy = url;
 
     if (url.find("http://") != std::string::npos) {
@@ -20,5 +26,15 @@ http_url::http_url(const std::string& url)
     } else if (host_end != std::string::npos) {
 	_host = url_copy.substr(0, host_end);
 	_uri = url_copy.substr(host_end, url_copy.length() - host_end);    		
+    }
+
+    if (!_host.length()) {
+	_error = error_types::NoHostnameFound;
+	return;
+    }
+
+    if (!_uri.length()) {
+	_error = error_types::NoUriFound;
+	return;
     }
 }

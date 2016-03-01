@@ -20,18 +20,6 @@ public:
 	: _url{url}
     {}
 
-    http_multipart_request(const http_multipart_request& r)
-	: _url{r._url}
-    {
-	std::cout << "copy c-tor\n";
-    }
-    
-    http_multipart_request(http_multipart_request&& r)
-	: _url{r._url} 
-    {
-	std::cout << "move c-tor\n";
-    }
-
     void add_part(const std::string& name, const std::string& value);
 
     void add_file_part(const std::string& name, const std::string& filename,
@@ -39,11 +27,7 @@ public:
 
     std::string host() const;
 
-    data_array multipart_header() const;
-
-    data_array multipart_body() const;
-
-    const data_array& multipart_data() const;
+    data_array request() const;
 
     data_array::size_type multipart_data_size() const;
 
@@ -52,9 +36,11 @@ public:
     friend std::ostream& operator<<(std::ostream& os, const http_multipart_request& mpreq);
 
 private:
-    //    data_array header() const;
+    data_array multipart_header(std::size_t bodysize) const;
 
-    //    data_array body() const;
+    data_array multipart_body() const;
+
+    const data_array& multipart_data() const;    
 
     unsigned long content_size() const;
 

@@ -3,6 +3,9 @@
 #include "httpurl.h"
 #include "httprequest.h"
 #include "httpmultipartrequest.h"
+#include "httpresponse.h"
+
+#include <boost/thread/mutex.hpp>
 
 #include <cstdlib>
 #include <cstdio>
@@ -14,21 +17,39 @@
 #include <cstring>
 #include <utility>
 
+class Printer {
+public:
+    void operator()(const std::string& str)
+    {
+	boost::lock_guard<boost::mutex> guard(_mutex);
+	fprintf(stdout, "%s\n", str.c_str());
+    }
+
+private:
+    boost::mutex _mutex;
+};
+
 class App {
 public:
     App()
+	: _is_done{false}
     {
 	http_client_ptr ptr = http_manager{}.make_http_client_ptr();
 	_phttp_client.swap(ptr);
 
 	_phttp_client->set_success_handler(boost::bind(boost::mem_fn(&App::success_handler), this, _1));
 	_phttp_client->set_fail_handler(boost::bind(&App::fail_handler, this));
+	_phttp_client->set_progerss_handler(boost::bind(boost::mem_fn(&App::progress_handler), this, _1, _2));	
     }
-    
-    void foo(http_multipart_request::data_array&& file)
+
+    bool foo(http_multipart_request::data_array&& file)
     {
 	http_url url{"http://irsoftware.ru:80/easyfileshare/bin/upload.php"};
-    
+	if (url.error() != http_url::error_types::Success) {
+	    std::cerr << "Bad url\n";
+	    return false;
+	}
+	
 	http_multipart_request_ptr mp_request{new http_multipart_request{url}};
 	mp_request->add_part("product", "IRS_EASYFILESHARE10");
 	mp_request->add_part("appversion","1.0.0.64");
@@ -71,25 +92,39 @@ public:
 
 	mp_request->add_file_part("fileToUpload", "test.jpg", "image/jpeg",
 				  http_multipart_request::data_array_ptr{new http_multipart_request::data_array{file}});
-
-	//	std::cout << "\n\n" << *mp_request << "\n\n";
 	
 	_phttp_client->post(mp_request);
+	
+	return true;
     }
 
+    bool is_done() const { return _is_done; }
+
 private:
-    void success_handler(const std::string& data)
+    void success_handler(http_response response)
     {
-	std::cout << "response data: " << data << "\n";
+	std::cout << "Protocol version: " << response.header().http_version
+		  << "\nStatus code: " << response.header().status_code
+		  << "\nStatus message: " << response.header().status_message
+		  << "\nData: " << response.data()
+		  << "\n";
+	_is_done = true;
     }
 
     void fail_handler()
     {
 	std::cout << "request failed\n";
     }
+
+    void progress_handler(unsigned long sent, unsigned long total)
+    {
+	std::cout << "Sent " << sent << " bytes from " << total << std::endl;
+    }
     
 private:
     http_client_ptr _phttp_client;
+    
+    bool _is_done;    
 };
 
 int main(int argc, char* argv[])
@@ -122,37 +157,15 @@ int main(int argc, char* argv[])
 	bytes_read += block_size;
     }
 
-    /*
-    std::ofstream ofs{"test2.jpg"};
-    if (!ifs.is_open()) {
-	std::cerr << "Failed to open file 'test2.jpg'\n";
-	return EXIT_FAILURE;	
-    }
-
-    block_size = 4096;
-    
-    bytes_left = file_data.size();
-    unsigned int bytes_rec{0};
-    
-    while (bytes_left) {
-	if (block_size > bytes_left) block_size = bytes_left;
-	ofs.write(static_cast<const char*>(static_cast<void*>(file_data.data() + bytes_rec)), block_size);
-	bytes_left -= block_size;
-	bytes_rec += block_size;
-	std::cout << "Left bytes write: " << bytes_left << "\n";	
-    }
-    */
-    //    http_multipart_request::data_array file_data;    
-
     App app;
 
     for (int i = 0; i < 10000000; ++i) {
 	if (i == 2) {
-	    app.foo(std::move(file_data));
+	    if (!app.foo(std::move(file_data))) break;
 	}
 	
 	boost::this_thread::sleep_for(boost::chrono::seconds(1));
-	std::cout << "main-id " << boost::this_thread::get_id() << "\n";	
+	//std::cout << "main-id " << boost::this_thread::get_id() << "\n";	
     }
 
     return EXIT_SUCCESS;

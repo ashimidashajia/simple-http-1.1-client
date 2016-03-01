@@ -3,9 +3,34 @@
 #include <random>
 #include <iterator>
 #include <iostream>
+#include <algorithm>
 
 http_multipart_request::data_array
-http_multipart_request::multipart_header() const
+http_multipart_request::request() const
+{
+    http_multipart_request::data_array full_request;
+
+    http_multipart_request::data_array request_body = multipart_body();
+
+    const http_multipart_request::data_array data = multipart_data();
+
+    request_body.insert(request_body.end(), data.begin(), data.end());
+
+    const std::string bound = std::string{"\r\n"}.append(boundary());
+
+    request_body.insert(request_body.end(), bound.begin(), bound.end());
+
+    const http_multipart_request::data_array request_header =
+	multipart_header(request_body.size());
+
+    full_request.insert(full_request.end(), request_header.begin(), request_header.end());
+    full_request.insert(full_request.end(), request_body.begin(), request_body.end());
+
+    return full_request;
+}
+
+http_multipart_request::data_array
+http_multipart_request::multipart_header(std::size_t bodysize) const
 {
     std::string boundary_str = boundary();
     boundary_str = boundary_str.substr(2, boundary_str.length() - 2);
@@ -20,7 +45,7 @@ http_multipart_request::multipart_header() const
 	 .append("MIME-Version: 1.0\r\n")	 
 	 .append("Accept-Language: ru-US,en,*\r\n")
 	 .append("User-Agent: Mozilla/5.0\r\n")
-	 //.append("Content-Length: ").append(std::to_string(content_size())).append("\r\n")
+	 .append("Content-Length: ").append(std::to_string(bodysize)).append("\r\n")
 	 .append("Connection: Keep-Alive\r\n").append("\r\n");
     
     return data_array{header_str.begin(), header_str.end()};
